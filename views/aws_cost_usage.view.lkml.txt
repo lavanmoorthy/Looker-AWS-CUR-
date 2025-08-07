@@ -1,0 +1,151 @@
+view: aws_cost_usage {
+  sql_table_name: dataset.aws_cur_sample_data ;;  # Replace with actual table path
+
+
+  ### DIMENSIONS ###
+
+  dimension: usage_type {
+    type: string
+    sql: ${TABLE}.usage_type ;;
+    label: "Usage Type"
+  }
+
+  dimension: resource_id {
+    type: string
+    sql: ${TABLE}.resource_id ;;
+    label: "Resource ID"
+  }
+
+  dimension: region {
+    type: string
+    sql: ${TABLE}.region ;;
+    label: "AWS Region"
+  }
+
+  dimension: tag_department {
+    type: string
+    sql: ${TABLE}.tag_department ;;
+    label: "Department"
+  }
+
+  dimension: tag_project {
+    type: string
+    sql: ${TABLE}.tag_project ;;
+    label: "Project"
+  }
+
+  dimension: tag_environment {
+    type: string
+    sql: ${TABLE}.tag_environment ;;
+    label: "Environment"
+  }
+
+  dimension_group: usage_start_date {
+    type: time
+    timeframes: [raw, date, week, month, quarter, year]
+    sql: ${TABLE}.usage_start_date ;;
+    label: "Usage Start Date"
+    convert_tz: no
+  }
+
+  dimension_group: usage_end_date {
+    type: time
+    timeframes: [raw, date, week, month, quarter, year]
+    sql: ${TABLE}.usage_end_date ;;
+    label: "Usage End Date"
+    convert_tz: no
+  }
+
+  dimension_group: billing_start_date {
+    type: time
+    timeframes: [raw, date, week, month, quarter, year]
+    sql: ${TABLE}.billing_start_date ;;
+    label: "Billing Start Date"
+    convert_tz: no
+  }
+
+  dimension_group: billing_end_date {
+    type: time
+    timeframes: [raw, date, week, month, quarter, year]
+    sql: ${TABLE}.billing_end_date ;;
+    label: "Billing End Date"
+    convert_tz: no
+  }
+
+
+  dimension: usage_month {
+    type: string
+    sql: FORMAT_TIMESTAMP('%Y-%m', ${TABLE}.usage_start_date) ;;
+    label: "Usage Month"
+  }
+
+
+  ### MEASURES ###
+
+  measure: total_cost {
+    type: sum
+    sql: ${TABLE}.cost ;;
+    value_format: "₹#,##0.00"
+    label: "Total Cost (INR)"
+  }
+
+  measure: total_usage {
+    type: sum
+    sql: ${TABLE}.usage_amount ;;
+    label: "Total Usage Amount"
+  }
+
+  measure: average_cost_per_unit {
+    type: number
+    sql: CASE WHEN ${total_usage} = 0 THEN NULL ELSE ${total_cost} / ${total_usage} END ;;
+    value_format: "₹#,##0.00"
+    label: "Average Cost per Usage Unit"
+  }
+
+
+  ### Cost Allocation Model ###
+
+  dimension: allocated_department {
+    type: string
+    sql:
+      CASE
+        WHEN ${tag_department} IS NOT NULL THEN ${tag_department}
+        WHEN ${usage_type} = 'EC2' THEN 'IT'
+        WHEN ${usage_type} = 'S3' THEN 'Shared'
+        ELSE 'Unassigned'
+      END ;;
+    label: "Allocated Department"
+  }
+
+
+  ### Cost Optimization ###
+
+  dimension: underutilized {
+    type: yesno
+    sql:
+      CASE
+        WHEN ${average_cost_per_unit} > 10 THEN TRUE
+        ELSE FALSE
+      END ;;
+    label: "Underutilized Resource"
+    group_label: "Cost Optimization"
+  }
+
+
+  ### Persistent Derived Tables (PDTs) ###
+
+   derived_table: {
+    persist_for: "24 hours"
+    sql_trigger_value: SELECT CURRENT_DATE ;;  #dummy trigger
+    sql: 
+      SELECT
+        tag_department,
+        usage_type,
+        DATE(usage_start_date) AS usage_date,
+        SUM(cost) AS total_cost,
+        SUM(usage_amount) AS total_usage
+      FROM aws_cur_data
+      GROUP BY 1, 2, 3 ;;
+   }
+
+}
